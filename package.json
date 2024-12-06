@@ -11,6 +11,7 @@
   "description": "",
   "dependencies": {
     "async": "^3.2.6",
+    "axios": "^1.7.9",
     "ethers": "^5.7.2",
     "xlsx": "^0.18.5"
   }

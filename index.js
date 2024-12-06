@@ -1,62 +1,52 @@
-const { ethers } = require("ethers");
-const XLSX = require("xlsx");
+const axios = require('axios');
+const XLSX = require('xlsx');
+const fs = require('fs');
 
 // Load the addresses from the Excel file
-const workbook = XLSX.readFile("address.xlsx");
+const workbook = XLSX.readFile('address.xlsx');
 const sheetName = workbook.SheetNames[0];
 const sheet = workbook.Sheets[sheetName];
-const addresses = XLSX.utils.sheet_to_json(sheet);
+const addresses = XLSX.utils.sheet_to_json(sheet).map(row => row.address);
 
-// Ethereum provider (you can replace with your own RPC URL)
-const provider = new ethers.providers.JsonRpcProvider("https://eth.llamarpc.com/");
+// Function to fetch balance for a wallet address
+async function fetchBalance(address) {
+    try {
+        const response = await axios.get(`https://balances.garden.finance/address/${address}`);
+        return response.data;
+    } catch (error) {
+        console.error(`Error fetching balance for ${address}:`, error.message);
+        return null;
+    }
+}
 
-async function getWalletData() {
+// Main function to process addresses and filter by balance
+async function processAddresses() {
     const results = [];
 
-    for (let i = 0; i < addresses.length; i++) {
-        const address = addresses[i].address;
-
-        console.log(`Processing index ${i}: Address ${address}`);
-
-        try {
-            // Fetch balance in wei
-            const balanceWei = await provider.getBalance(address);
-            const balanceEth = ethers.utils.formatEther(balanceWei);
-
-            console.log(`Balance of address ${address}: $${parseFloat(balanceEth) * 3908}`);
-
-            // Check if balance is greater than 60 USD (assuming 1 ETH = 3908 USD)
-            if (parseFloat(balanceEth) * 3908 > 60) {
-                // Fetch transaction count
-                const transactionCount = await provider.getTransactionCount(address);
-
-                console.log(`Transaction count for address ${address}: ${transactionCount}`);
-
-                // Check if the transaction count is greater than or equal to 6
-                if (transactionCount >= 6) {
-                    results.push({ address, balance: balanceEth });
-                    console.log(`Address ${address} pushed to results with balance: $${parseFloat(balanceEth) * 3908}`);
-                }
+    for (const address of addresses) {
+        const data = await fetchBalance(address);
+        if (data) {
+            const totalBalanceUsd = parseFloat(data.totalBalanceUsd);
+            if (totalBalanceUsd > 60) {
+                const resultObject = {
+                    address: address,
+                    totalBalanceUsd: totalBalanceUsd,
+                    totalCount: data.totalCount
+                };
+                results.push(resultObject);
+                console.log(`Added to results:`, resultObject); // Log the object on successful push
             }
-        } catch (error) {
-            console.error(`Error fetching data for ${address}:`, error);
         }
     }
 
-    return results;
-}
-
-async function saveResults(results) {
+    // Save results to a new Excel file
     const newWorkbook = XLSX.utils.book_new();
-    const newWorksheet = XLSX.utils.json_to_sheet(results);
-    XLSX.utils.book_append_sheet(newWorkbook, newWorksheet, "Filtered Results");
+    const newSheet = XLSX.utils.json_to_sheet(results);
+    XLSX.utils.book_append_sheet(newWorkbook, newSheet, 'Filtered Balances');
+    XLSX.writeFile(newWorkbook, 'filtered_balances.xlsx');
 
-    XLSX.writeFile(newWorkbook, "filtered_addresses.xlsx");
+    console.log(`Processed ${addresses.length} addresses. Found ${results.length} with balances over $60.`);
 }
 
-async function main() {
-    const results = await getWalletData();
-    await saveResults(results);
-}
-
-main().catch(console.error);
+// Run the process
+processAddresses();
